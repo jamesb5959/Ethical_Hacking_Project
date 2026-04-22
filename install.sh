@@ -1,16 +1,26 @@
 #!/usr/bin/env bash
+set -euo pipefail
 
-distribution=$(. /etc/os-release;echo $ID$VERSION_ID)
-curl -fsSL https://nvidia.github.io/nvidia-docker/gpgkey | sudo apt-key add -
-curl -fsSL https://nvidia.github.io/nvidia-docker/$distribution/nvidia-docker.list | \
-  sudo tee /etc/apt/sources.list.d/nvidia-docker.list
+IMAGE_NAME="${IMAGE_NAME:-gemma-chat}"
 
-sudo apt-get update
-sudo apt-get install -y nvidia-docker2
+if ! command -v docker >/dev/null 2>&1; then
+  echo "Docker is required. Install Docker, then run this script again." >&2
+  exit 1
+fi
 
-# Restart Docker to pick up the new runtime
-sudo systemctl restart docker
+if ! docker info >/dev/null 2>&1; then
+  echo "Docker is not running or your user cannot access it." >&2
+  exit 1
+fi
 
-# build your image
-docker build --gpus all -t gemma-chat .
+if command -v nvidia-smi >/dev/null 2>&1 && ! docker run --rm --gpus all nvidia/cuda:11.8.0-base-ubuntu20.04 nvidia-smi >/dev/null 2>&1; then
+  echo "NVIDIA GPU detected, but Docker GPU support is not ready."
+  echo "Install NVIDIA Container Toolkit, restart Docker, then rerun this script."
+  echo "Docs: https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html"
+  exit 1
+fi
 
+docker build -t "${IMAGE_NAME}" .
+
+echo "Built ${IMAGE_NAME}."
+echo "Run it with: ./start.sh"

@@ -1,5 +1,3 @@
-# manager.py
-
 from flask import Flask, request, jsonify
 from tools.gemma import handle_prompt
 
@@ -7,9 +5,12 @@ app = Flask(__name__)
 
 @app.route("/generate", methods=["POST"])
 def generate():
-    data = request.json or {}
+    data = request.get_json(silent=True) or {}
     prompt = data.get("prompt", "").strip()
     print(f"[manager] got prompt: {prompt!r}", flush=True)
+
+    if not prompt:
+        return jsonify({"error": "prompt is required"}), 400
 
     try:
         response_text = handle_prompt(prompt)
@@ -22,4 +23,3 @@ def generate():
 
 if __name__ == "__main__":
     app.run(debug=True, host="0.0.0.0", port=5000)
-

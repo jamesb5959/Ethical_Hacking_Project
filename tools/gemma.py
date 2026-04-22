@@ -1,83 +1,85 @@
-from typing import Any, List, Optional, Dict, Type
-from langchain.chat_models.base import BaseChatModel
-from langchain.schema import AIMessage, ChatGeneration, ChatResult, HumanMessage, SystemMessage
-from pydantic import Field
+from pathlib import Path
 import subprocess
-from langchain.agents import Tool
-from langchain_community.tools.shell.tool import ShellTool
-from tools.nmap import nmap_tool
+
 from tools.inference import generate_response
-from langgraph.prebuilt import create_react_agent
-import os
+from tools.nmap import nmap_tool
 from tools.searchsploit import searchsploit_tool
 
-class GemmaLLM(BaseChatModel):
-    tools: Optional[List[Any]] = Field(default=None)
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+SYSTEM_PROMPT_PATH = PROJECT_ROOT / "config" / "sys_msg.txt"
+SHELL_TIMEOUT_SECONDS = 30
 
-    def _generate(self, messages: List[Any], stop: Optional[List[str]] = None) -> ChatResult:
-        # Load system prompt from external file (moved out of inline string)
-        cfg = os.path.join(os.path.dirname(__file__), "config", "sys_msg.txt")
-        with open(cfg, "r") as f:
-            sys_msg = f.read()
 
-        # Prepend system message
-        sys_message = SystemMessage(content=sys_msg)
-        inputs = [sys_message] + messages
+def load_system_prompt() -> str:
+    with SYSTEM_PROMPT_PATH.open("r", encoding="utf-8") as f:
+        return f.read().strip()
 
-        # Generate response
-        return super()._generate(inputs, stop=stop)
+
+def build_prompt(user_prompt: str) -> str:
+    return f"{load_system_prompt()}\n\nUser: {user_prompt}\nGemma:"
+
+
+def run_shell_command(command: str) -> str:
+    if not command:
+        return "Error: no shell command provided."
+
+    try:
+        proc = subprocess.run(
+            command,
+            shell=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            timeout=SHELL_TIMEOUT_SECONDS,
+        )
+        out = proc.stdout.strip() or proc.stderr.strip()
+        return f"$ {command}\n{out}"
+    except subprocess.TimeoutExpired:
+        return (
+            f"Error running shell command '{command}': "
+            f"timed out after {SHELL_TIMEOUT_SECONDS} seconds."
+        )
+    except Exception as e:
+        return f"Error running shell command '{command}': {e}"
 
 
 def execute_tool_calls(text: str) -> str:
-    outputs = []
     for line in text.splitlines():
         line = line.strip()
+        if not line:
+            continue
+
         if line.startswith("Shell:"):
-            cmd = line[len("Shell:"):].strip()
+            return run_shell_command(line[len("Shell:"):].strip())
+
+        if line.startswith("Nmap Scanner:"):
+            target = line[len("Nmap Scanner:"):].strip()
             try:
-                proc = subprocess.run(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-                out = proc.stdout.strip() or proc.stderr.strip()
-                outputs.append(f"$ {cmd}\n{out}")
+                out = nmap_tool.func(target)
+                return f"Nmap results for {target}:\n{out}"
             except Exception as e:
-                outputs.append(f"Error running shell command '{cmd}': {e}")
-            break
-        elif line.startswith("Nmap Scanner:"):
-            ip = line[len("Nmap Scanner:"):].strip()
-            try:
-                out = nmap_tool.func(ip)
-                outputs.append(f"Nmap results for {ip}:\n{out}")
-            except Exception as e:
-                outputs.append(f"Error running Nmap on '{ip}': {e}")
-            break
-        elif line.startswith("SearchSploit:"):
+                return f"Error running Nmap on '{target}': {e}"
+
+        if line.startswith("SearchSploit:"):
             query = line[len("SearchSploit:"):].strip()
             try:
                 out = searchsploit_tool.func(query)
-                outputs.append(f"Searchsploit results for '{query}':\n{out}")
+                return f"Searchsploit results for '{query}':\n{out}"
             except Exception as e:
-                outputs.append(f"Error running SearchSploit for '{query}': {e}")
-            break
-        else:
-            outputs.append(line)
-            break
-    return "\n".join(outputs)
+                return f"Error running SearchSploit for '{query}': {e}"
+
+        return line
+
+    return ""
+
 
 def handle_prompt(prompt: str) -> str:
-    gemma_llm = GemmaLLM()
-    tools = [ShellTool(), nmap_tool, searchsploit_tool]
-    agent = create_react_agent(gemma_llm, tools=tools)
-    stream = agent.stream({"messages": [("user", prompt)]}, stream_mode="values")
-    raw_response = None
-    for s in stream:
-        msg = s["messages"][-1]
-        raw_response = msg[1] if isinstance(msg, tuple) else msg.content
+    raw_response = generate_response(build_prompt(prompt))
+    return execute_tool_calls(raw_response)
 
-    # Execute any tool calls and return combined output
-    return execute_tool_calls(raw_response or "")
 
 if __name__ == "__main__":
     while True:
         user_input = input("You: ")
         result = handle_prompt(user_input)
         print(f"Gemma:\n{result}\n")
-

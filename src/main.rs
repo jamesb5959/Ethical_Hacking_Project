@@ -1,13 +1,17 @@
 use std::{
+    env,
     fs::OpenOptions,
     io::{self, Write},
     time::Duration,
 };
+
 use crossterm::{
     event::{self, Event, KeyCode},
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
+use reqwest::blocking::Client;
+use serde::{Deserialize, Serialize};
 use tui::{
     backend::CrosstermBackend,
     layout::{Constraint, Direction, Layout},
@@ -16,9 +20,8 @@ use tui::{
     widgets::{Block, Borders, Paragraph},
     Terminal,
 };
-use serde::{Deserialize, Serialize};
-use reqwest::blocking::Client;
-use serde_json::Value;
+
+const DEFAULT_API_URL: &str = "http://localhost:5000/generate";
 
 #[derive(PartialEq)]
 enum InputMode {
@@ -36,70 +39,85 @@ struct GenerateResponse {
     response: String,
 }
 
+#[derive(Debug, Deserialize)]
+struct ErrorResponse {
+    error: String,
+}
+
 struct App {
     input: String,
     history: Vec<(String, String)>,
     input_mode: InputMode,
     scroll: u16,
+    client: Client,
+    api_url: String,
 }
 
 impl App {
-    fn new() -> Self {
-        Self {
+    fn new() -> Result<Self, reqwest::Error> {
+        let api_url = env::var("GEMMA_API_URL").unwrap_or_else(|_| DEFAULT_API_URL.to_string());
+        let client = Client::builder().timeout(None).build()?;
+
+        Ok(Self {
             input: String::new(),
             history: Vec::new(),
             input_mode: InputMode::Normal,
             scroll: 0,
-        }
+            client,
+            api_url,
+        })
     }
 
     fn send_prompt(&mut self) {
-        if self.input.trim().is_empty() {
+        let prompt = self.input.trim().to_string();
+        if prompt.is_empty() {
             return;
         }
-        let client = Client::builder().timeout(None).build().unwrap();
-        let request = GenerateRequest {
-            prompt: self.input.clone(),
-        };
-        let res = client
-            .post("http://localhost:5000/generate")
-            .json(&request)
-            .send();
 
-        match res {
-            Ok(resp) => {
-                let status = resp.status();
-                if status.is_success() {
-                    if let Ok(parsed) = resp.json::<GenerateResponse>() {
-                        self.history.push((self.input.clone(), parsed.response.clone()));
-                    } else {
-                        self.history.push((self.input.clone(), "Malformed success response.".into()));
-                    }
-                } else {
-                    let err_text = resp.json::<Value>()
-                        .ok()
-                        .and_then(|v| v.get("error").and_then(|e| e.as_str()).map(String::from))
-                        .unwrap_or_else(|| format!("Server returned {}", status));
-                    self.history.push((self.input.clone(), format!("Error: {}", err_text)));
-                }
-            }
-            Err(e) => {
-                self.history.push((self.input.clone(), format!("Request failed: {}", e)));
-            }
-        }
-        append_to_csv(&self.input, &self.history.last().unwrap().1);
+        let request = GenerateRequest {
+            prompt: prompt.clone(),
+        };
+        let response_text = match self.client.post(&self.api_url).json(&request).send() {
+            Ok(resp) => parse_response(resp),
+            Err(e) => format!("Request failed: {}", e),
+        };
+
+        append_to_csv(&prompt, &response_text);
+        self.history.push((prompt, response_text));
         self.input.clear();
-        // reset scroll to top
         self.scroll = 0;
     }
 }
 
+fn parse_response(resp: reqwest::blocking::Response) -> String {
+    let status = resp.status();
+    if status.is_success() {
+        return match resp.json::<GenerateResponse>() {
+            Ok(parsed) => parsed.response,
+            Err(e) => format!("Malformed success response: {}", e),
+        };
+    }
+
+    let err_text = resp
+        .json::<ErrorResponse>()
+        .map(|parsed| parsed.error)
+        .unwrap_or_else(|_| format!("Server returned {}", status));
+
+    format!("Error: {}", err_text)
+}
+
 fn append_to_csv(prompt: &str, response: &str) {
-    if let Ok(mut wtr) = OpenOptions::new().create(true).append(true).open("chat_history.csv") {
-        // Escape double quotes by doubling them for CSV
-        let p = prompt.replace('"', "\"\"");
-        let r = response.replace('"', "\"\"");
-        let _ = write!(wtr, "\"{}\",\"{}\"\n", p, r);
+    match OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open("chat_history.csv")
+    {
+        Ok(mut wtr) => {
+            let p = prompt.replace('"', "\"\"");
+            let r = response.replace('"', "\"\"");
+            let _ = writeln!(wtr, "\"{}\",\"{}\"", p, r);
+        }
+        Err(e) => eprintln!("Failed to write chat history: {}", e),
     }
 }
 
@@ -109,7 +127,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     execute!(stdout, EnterAlternateScreen)?;
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
-    let mut app = App::new();
+    let mut app = App::new()?;
 
     let res = run_app(&mut terminal, &mut app);
 
@@ -122,19 +140,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-fn run_app<B: tui::backend::Backend>(
-    terminal: &mut Terminal<B>,
-    app: &mut App,
-) -> io::Result<()> {
+fn run_app<B: tui::backend::Backend>(terminal: &mut Terminal<B>, app: &mut App) -> io::Result<()> {
     loop {
         terminal.draw(|f| {
             let chunks = Layout::default()
                 .direction(Direction::Vertical)
                 .margin(1)
-                .constraints([Constraint::Min(5), Constraint::Length(3), Constraint::Length(1)])
+                .constraints([
+                    Constraint::Min(5),
+                    Constraint::Length(3),
+                    Constraint::Length(1),
+                ])
                 .split(f.size());
 
-            // build history lines
             let mut lines: Vec<Spans> = Vec::new();
             for (user, resp) in &app.history {
                 lines.push(Spans::from(vec![
@@ -173,7 +191,7 @@ fn run_app<B: tui::backend::Backend>(
                     Span::styled("i", Style::default().fg(Color::Green)),
                     Span::raw(" to insert, "),
                     Span::styled("q", Style::default().fg(Color::Red)),
-                    Span::raw(" to quit. Use ↑/↓ to scroll."),
+                    Span::raw(" to quit. Use Up/Down to scroll."),
                 ]),
                 InputMode::Insert => Spans::from(vec![
                     Span::raw("Type your prompt. "),
@@ -189,7 +207,6 @@ fn run_app<B: tui::backend::Backend>(
         if event::poll(Duration::from_millis(200))? {
             if let Event::Key(key) = event::read()? {
                 match key.code {
-                    // scrolling
                     KeyCode::Up => {
                         if app.scroll > 0 {
                             app.scroll -= 1;
@@ -202,7 +219,7 @@ fn run_app<B: tui::backend::Backend>(
                     }
                     _ => {}
                 }
-                // input handling
+
                 match key.code {
                     KeyCode::Char('i') if app.input_mode == InputMode::Normal => {
                         app.input_mode = InputMode::Insert;
