@@ -8,6 +8,7 @@ from tools.searchsploit import searchsploit_tool
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 SYSTEM_PROMPT_PATH = PROJECT_ROOT / "config" / "sys_msg.txt"
 SHELL_TIMEOUT_SECONDS = 30
+TOOL_PREFIXES = ("Shell:", "Nmap Scanner:", "SearchSploit:")
 
 
 def load_system_prompt() -> str:
@@ -16,7 +17,7 @@ def load_system_prompt() -> str:
 
 
 def build_prompt(user_prompt: str) -> str:
-    return f"{load_system_prompt()}\n\nUser: {user_prompt}\nGemma:"
+    return f"{load_system_prompt()}\n\nUser: {user_prompt}\nSydney:"
 
 
 def run_shell_command(command: str) -> str:
@@ -74,6 +75,9 @@ def execute_tool_calls(text: str) -> str:
 
 
 def handle_prompt(prompt: str) -> str:
+    if prompt.strip().startswith(TOOL_PREFIXES):
+        return execute_tool_calls(prompt)
+
     raw_response = generate_response(build_prompt(prompt))
     return execute_tool_calls(raw_response)
 
@@ -82,4 +86,4 @@ if __name__ == "__main__":
     while True:
         user_input = input("You: ")
         result = handle_prompt(user_input)
-        print(f"Gemma:\n{result}\n")
+        print(f"Sydney:\n{result}\n")

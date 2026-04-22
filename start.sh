@@ -20,6 +20,12 @@ if [ -n "${HUGGING_FACE_HUB_TOKEN:-}" ]; then
   DOCKER_ARGS+=(-e "HUGGING_FACE_HUB_TOKEN=${HUGGING_FACE_HUB_TOKEN}")
   DOCKER_ARGS+=(-e "HF_TOKEN=${HUGGING_FACE_HUB_TOKEN}")
 fi
+if [ -n "${CPU_MAX_NEW_TOKENS:-}" ]; then
+  DOCKER_ARGS+=(-e "CPU_MAX_NEW_TOKENS=${CPU_MAX_NEW_TOKENS}")
+fi
+if [ -n "${CUDA_MAX_NEW_TOKENS:-}" ]; then
+  DOCKER_ARGS+=(-e "CUDA_MAX_NEW_TOKENS=${CUDA_MAX_NEW_TOKENS}")
+fi
 
 if [ -d "${LOCAL_MODEL_DIR}" ]; then
   DOCKER_ARGS+=(-v "${LOCAL_MODEL_DIR}:${CONTAINER_MODEL_DIR}:ro")
@@ -30,7 +36,7 @@ elif [ -n "${MODEL_NAME:-}" ]; then
 elif [ -z "${HF_TOKEN:-}" ] && [ -z "${HUGGING_FACE_HUB_TOKEN:-}" ]; then
   echo "Warning: HF_TOKEN or HUGGING_FACE_HUB_TOKEN is not set."
   echo "No local model was found at ${LOCAL_MODEL_DIR}."
-  echo "Gemma is gated, so /generate will fail unless the model is cached or public access is available."
+  echo "Sydney uses a gated Gemma model, so /generate will fail unless the model is cached or public access is available."
 fi
 
 DOCKER_ARGS+=(
