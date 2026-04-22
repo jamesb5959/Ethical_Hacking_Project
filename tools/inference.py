@@ -45,6 +45,7 @@ def generate_response(prompt: str, max_new_tokens: int = None) -> str:
     if max_new_tokens is None:
         max_new_tokens = default_max_new_tokens(device)
 
+    print(f"[inference] Generating up to {max_new_tokens} tokens on {device}", flush=True)
     inputs = tokenizer(prompt, return_tensors="pt").to(device)
     prompt_len = inputs.input_ids.shape[-1]
     outputs = model.generate(

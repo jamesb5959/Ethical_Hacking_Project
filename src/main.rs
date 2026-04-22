@@ -162,7 +162,7 @@ fn run_app<B: tui::backend::Backend>(terminal: &mut Terminal<B>, app: &mut App) 
                 for (i, line) in resp.lines().enumerate() {
                     if i == 0 {
                         lines.push(Spans::from(vec![
-                            Span::styled("Gemma: ", Style::default().fg(Color::Green)),
+                            Span::styled("Sydney: ", Style::default().fg(Color::Green)),
                             Span::raw(line.to_string()),
                         ]));
                     } else {
