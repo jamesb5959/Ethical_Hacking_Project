@@ -39,7 +39,7 @@
 3. **Run the container**
 
    ```bash
-   HF_TOKEN="your_hugging_face_token" ./start.sh
+   ./start.sh
    ```
 
 4. **Run the Rust terminal UI**
