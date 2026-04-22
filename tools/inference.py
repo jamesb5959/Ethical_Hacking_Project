@@ -2,6 +2,8 @@ from functools import lru_cache
 import os
 
 MODEL_NAME = os.environ.get("MODEL_NAME", "google/gemma-2-2b")
+CPU_MAX_NEW_TOKENS = int(os.environ.get("CPU_MAX_NEW_TOKENS", "32"))
+CUDA_MAX_NEW_TOKENS = int(os.environ.get("CUDA_MAX_NEW_TOKENS", "150"))
 
 
 @lru_cache(maxsize=1)
@@ -34,8 +36,15 @@ def load_model():
     return tokenizer, model, device
 
 
-def generate_response(prompt: str, max_new_tokens: int = 150) -> str:
+def default_max_new_tokens(device) -> int:
+    return CUDA_MAX_NEW_TOKENS if device.type == "cuda" else CPU_MAX_NEW_TOKENS
+
+
+def generate_response(prompt: str, max_new_tokens: int = None) -> str:
     tokenizer, model, device = load_model()
+    if max_new_tokens is None:
+        max_new_tokens = default_max_new_tokens(device)
+
     inputs = tokenizer(prompt, return_tensors="pt").to(device)
     prompt_len = inputs.input_ids.shape[-1]
     outputs = model.generate(
