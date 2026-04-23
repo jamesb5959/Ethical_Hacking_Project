@@ -29,6 +29,7 @@ RUN python3 -m venv ./venv && \
 COPY manager.py .
 COPY config/ ./config/
 COPY tools/ ./tools/
+COPY weaviate/ ./weaviate/
 
 EXPOSE 5000
 CMD ["python", "manager.py"]

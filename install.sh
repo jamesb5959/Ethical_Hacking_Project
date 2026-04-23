@@ -21,6 +21,7 @@ if command -v nvidia-smi >/dev/null 2>&1 && ! docker run --rm --gpus all nvidia/
 fi
 
 docker build -t "${IMAGE_NAME}" .
+docker pull semitechnologies/weaviate:1.24.10
 
 echo "Built ${IMAGE_NAME}."
 echo "Run it with: ./start.sh"

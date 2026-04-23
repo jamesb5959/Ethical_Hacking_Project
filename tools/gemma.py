@@ -16,8 +16,9 @@ def load_system_prompt() -> str:
         return f.read().strip()
 
 
-def build_prompt(user_prompt: str) -> str:
-    return f"{load_system_prompt()}\n\nUser: {user_prompt}\nSydney:"
+def build_prompt(user_prompt: str, context: str = "") -> str:
+    context_block = f"\n\nRelevant memory:\n{context}" if context else ""
+    return f"{load_system_prompt()}{context_block}\n\nUser: {user_prompt}\nSydney:"
 
 
 def run_shell_command(command: str) -> str:
@@ -74,11 +75,11 @@ def execute_tool_calls(text: str) -> str:
     return ""
 
 
-def handle_prompt(prompt: str) -> str:
+def handle_prompt(prompt: str, context: str = "") -> str:
     if prompt.strip().startswith(TOOL_PREFIXES):
         return execute_tool_calls(prompt)
 
-    raw_response = generate_response(build_prompt(prompt))
+    raw_response = generate_response(build_prompt(prompt, context=context))
     return execute_tool_calls(raw_response)
 
 
