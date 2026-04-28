@@ -1,0 +1,39 @@
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+env/
+
+# Rust
+target/
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+
+# Runtime logs / local outputs
+frontend-dev.log
+chat_history.csv
+*.log
+
+# Local model downloads
+models/
+
+# Local Weaviate / caches
+*.db
+*.sqlite
+
+# Environment files / secrets
+.env
+.env.*

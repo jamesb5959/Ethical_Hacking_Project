@@ -2,9 +2,15 @@
 set -euo pipefail
 
 IMAGE_NAME="${IMAGE_NAME:-gemma-chat}"
+FRONTEND_DIR="${FRONTEND_DIR:-frontend}"
 
 if ! command -v docker >/dev/null 2>&1; then
   echo "Docker is required. Install Docker, then run this script again." >&2
+  exit 1
+fi
+
+if ! command -v npm >/dev/null 2>&1; then
+  echo "npm is required for the Svelte frontend. Install Node.js and npm, then run this script again." >&2
   exit 1
 fi
 
@@ -22,6 +28,10 @@ fi
 
 docker build -t "${IMAGE_NAME}" .
 docker pull semitechnologies/weaviate:1.24.10
+
+if [ -d "${FRONTEND_DIR}" ]; then
+  npm install --prefix "${FRONTEND_DIR}"
+fi
 
 echo "Built ${IMAGE_NAME}."
 echo "Run it with: ./start.sh"
