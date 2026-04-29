@@ -1,5 +1,5 @@
 use std::{
-    env,
+    env, fs,
     fs::OpenOptions,
     io::{self, Write},
     time::Duration,
@@ -27,11 +27,25 @@ const DEFAULT_API_URL: &str = "http://localhost:5000/generate";
 enum InputMode {
     Normal,
     Insert,
+    UploadPath,
 }
 
 #[derive(Serialize)]
 struct GenerateRequest {
     prompt: String,
+}
+
+#[derive(Serialize)]
+struct SaveMemoryRequest {
+    prompt: String,
+    response: String,
+    kind: String,
+}
+
+#[derive(Serialize)]
+struct UploadMemoryRequest {
+    filename: String,
+    content: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -84,6 +98,79 @@ impl App {
 
         append_to_csv(&prompt, &response_text);
         self.history.push((prompt, response_text));
+        self.input.clear();
+        self.scroll = 0;
+    }
+
+    fn memory_url(&self, path: &str) -> String {
+        format!(
+            "{}{}",
+            self.api_url
+                .strip_suffix("/generate")
+                .unwrap_or(&self.api_url),
+            path
+        )
+    }
+
+    fn save_latest_memory(&mut self) {
+        let Some((prompt, response)) = self.history.last().cloned() else {
+            self.history.push((
+                "Save memory".to_string(),
+                "No conversation response to save yet.".to_string(),
+            ));
+            return;
+        };
+
+        let request = SaveMemoryRequest {
+            prompt,
+            response,
+            kind: "workflow".to_string(),
+        };
+
+        let message = match self
+            .client
+            .post(self.memory_url("/memory/save"))
+            .json(&request)
+            .send()
+        {
+            Ok(resp) if resp.status().is_success() => {
+                "Saved latest response to Weaviate.".to_string()
+            }
+            Ok(resp) => parse_response(resp),
+            Err(e) => format!("Save failed: {}", e),
+        };
+        self.history.push(("Save memory".to_string(), message));
+    }
+
+    fn upload_file_memory(&mut self) {
+        let path = self.input.trim().to_string();
+        if path.is_empty() {
+            return;
+        }
+
+        let message = match fs::read_to_string(&path) {
+            Ok(content) => {
+                let request = UploadMemoryRequest {
+                    filename: path.clone(),
+                    content,
+                };
+                match self
+                    .client
+                    .post(self.memory_url("/memory/upload"))
+                    .json(&request)
+                    .send()
+                {
+                    Ok(resp) if resp.status().is_success() => {
+                        format!("Uploaded {} to Weaviate.", path)
+                    }
+                    Ok(resp) => parse_response(resp),
+                    Err(e) => format!("Upload failed: {}", e),
+                }
+            }
+            Err(e) => format!("Could not read {}: {}", path, e),
+        };
+
+        self.history.push(("Upload file".to_string(), message));
         self.input.clear();
         self.scroll = 0;
     }
@@ -190,6 +277,10 @@ fn run_app<B: tui::backend::Backend>(terminal: &mut Terminal<B>, app: &mut App) 
                     Span::raw("Press "),
                     Span::styled("i", Style::default().fg(Color::Green)),
                     Span::raw(" to insert, "),
+                    Span::styled("s", Style::default().fg(Color::Green)),
+                    Span::raw(" to save latest, "),
+                    Span::styled("u", Style::default().fg(Color::Green)),
+                    Span::raw(" to upload file, "),
                     Span::styled("q", Style::default().fg(Color::Red)),
                     Span::raw(" to quit. Use Up/Down to scroll."),
                 ]),
@@ -197,6 +288,13 @@ fn run_app<B: tui::backend::Backend>(terminal: &mut Terminal<B>, app: &mut App) 
                     Span::raw("Type your prompt. "),
                     Span::styled("Enter", Style::default().fg(Color::Green)),
                     Span::raw(" to send, "),
+                    Span::styled("Esc", Style::default().fg(Color::Red)),
+                    Span::raw(" to cancel."),
+                ]),
+                InputMode::UploadPath => Spans::from(vec![
+                    Span::raw("Type a text file path. "),
+                    Span::styled("Enter", Style::default().fg(Color::Green)),
+                    Span::raw(" to upload, "),
                     Span::styled("Esc", Style::default().fg(Color::Red)),
                     Span::raw(" to cancel."),
                 ]),
@@ -224,6 +322,13 @@ fn run_app<B: tui::backend::Backend>(terminal: &mut Terminal<B>, app: &mut App) 
                     KeyCode::Char('i') if app.input_mode == InputMode::Normal => {
                         app.input_mode = InputMode::Insert;
                     }
+                    KeyCode::Char('s') if app.input_mode == InputMode::Normal => {
+                        app.save_latest_memory();
+                    }
+                    KeyCode::Char('u') if app.input_mode == InputMode::Normal => {
+                        app.input.clear();
+                        app.input_mode = InputMode::UploadPath;
+                    }
                     KeyCode::Char('q') if app.input_mode == InputMode::Normal => {
                         return Ok(());
                     }
@@ -233,14 +338,27 @@ fn run_app<B: tui::backend::Backend>(terminal: &mut Terminal<B>, app: &mut App) 
                         }
                         app.input_mode = InputMode::Normal;
                     }
-                    KeyCode::Esc if app.input_mode == InputMode::Insert => {
+                    KeyCode::Enter if app.input_mode == InputMode::UploadPath => {
+                        app.upload_file_memory();
+                        app.input_mode = InputMode::Normal;
+                    }
+                    KeyCode::Esc
+                        if app.input_mode == InputMode::Insert
+                            || app.input_mode == InputMode::UploadPath =>
+                    {
                         app.input.clear();
                         app.input_mode = InputMode::Normal;
                     }
-                    KeyCode::Char(c) if app.input_mode == InputMode::Insert => {
+                    KeyCode::Char(c)
+                        if app.input_mode == InputMode::Insert
+                            || app.input_mode == InputMode::UploadPath =>
+                    {
                         app.input.push(c);
                     }
-                    KeyCode::Backspace if app.input_mode == InputMode::Insert => {
+                    KeyCode::Backspace
+                        if app.input_mode == InputMode::Insert
+                            || app.input_mode == InputMode::UploadPath =>
+                    {
                         app.input.pop();
                     }
                     _ => {}

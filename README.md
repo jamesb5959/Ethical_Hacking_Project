@@ -12,6 +12,8 @@
 │   ├── searchsploit.py     # SearchSploit tool
 │   ├── gemma.py            # Sydney agent implementation
 │   └── inference.py        # Response-generation helper
+├── weaviate/
+│   └── memory.py           # Local Weaviate memory helper
 ├── manager.py              # Flask API server (entrypoint)
 ├── requirements.txt        # Python dependencies
 ├── Dockerfile              # Container build instructions
@@ -42,11 +44,20 @@
    HF_TOKEN="your_hugging_face_token" ./start.sh
    ```
 
+   This also starts a local Weaviate container for Sydney's memory.
+
 4. **Run the Rust terminal UI**
 
    ```bash
    cargo run --manifest-path Cargo.toml
    ```
+
+   TUI controls:
+
+   * `i` - type a prompt
+   * `s` - save the latest response to Weaviate
+   * `u` - upload a text file path to Weaviate
+   * `q` - quit
 
 ## Mac Support
 
@@ -58,9 +69,12 @@ On Mac, Docker runs CPU-only. Linux/WSL systems with NVIDIA support can still us
 
 * **System Prompt**: Modify `config/sys_msg.txt` to update tool descriptions and behavior.
 * Sydney’s Flask API will be available on `http://localhost:5000`.
+* Weaviate will be available on `http://localhost:8080`.
 * **Environment Variables**:
 
   * `HF_TOKEN` - Hugging Face access token used to download and run Sydney's Gemma model.
   * `HUGGING_FACE_HUB_TOKEN` - Alternative Hugging Face token variable.
   * `PORT` - Optional host port override for `start.sh`.
+  * `WEAVIATE_PORT` - Optional Weaviate host port override.
+  * `WEAVIATE_ENABLED` - Set to `0` to skip memory retrieval.
   * `GEMMA_API_URL` - Optional API URL override for the Rust UI.
